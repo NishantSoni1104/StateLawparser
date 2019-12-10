@@ -1,0 +1,882 @@
+﻿@using Microsoft.AspNetCore.Antiforgery
+@{
+    ViewData["Title"] = "Home page";
+}
+@inject IAntiforgery Xsrf
+@functions{
+
+    private string GetAntiXsrfRequestToken()
+    {
+        return Xsrf.GetAndStoreTokens(Context).RequestToken;
+    }
+}
+
+@section Style {
+<link rel="stylesheet" href="~/lib/font-awesome/fontawesome.css">
+<link href="~/lib/smartwizard/dist/css/smart_wizard.min.css" rel="stylesheet" type="text/css" />
+<link href="~/lib/smartwizard/dist/css/smart_wizard_theme_arrows.min.css" rel="stylesheet" type="text/css" />
+<link href="~/css/dataTable.min.css" rel="stylesheet" type="text/css" />
+}
+
+<input type="hidden" id="RequestVerificationToken"
+       name="RequestVerificationToken" value="@GetAntiXsrfRequestToken()">
+<br />
+<br />
+
+<div id="smartwizard">
+    <ul>
+        <li><a href="#step-1">Step 1<br /><small>Input Document</small></a></li>
+        <li><a href="#step-2">Step 2<br /><small>Mapping Options</small></a></li>
+        <li><a href="#step-3">Step 3<br /><small>Preview Document</small></a></li>
+    </ul>
+
+    <div>
+        <div id="step-1">
+            @{
+            await Html.RenderPartialAsync("_PartialStepOne");
+            }
+        </div>
+        <div id="step-2">
+            <div id="filterRow" class="row">
+                <div class="col-sm-12">
+                    <form>
+                        <div class="form-row">
+                            <div class="col text-right">
+                                <label>Category</label>
+                            </div>
+                            <div class="col">
+                                <select id="ddlAllCategory" class="form-control mb-2 mr-sm-2"></select>
+                            </div>
+                            <div class="col">
+                                <button id="btnFilter" class="btn btn-primary" type="button">Submit</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-sm-12">
+                    <div class="table-responsive">
+                        <table id="tbLineItems" class="table table-bordered table-hover table-striped" style="width: 100%">
+                            <thead>
+                                <tr>
+                                    <th>Id</th>
+                                    <th>Description</th>
+                                    <th>Category</th>
+                                    <th>Name</th>
+                                    <th>Options</th>
+                                </tr>
+                            </thead>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <br />
+            <div class="row">
+                <div class="col-sm-6">
+                    <button id="btnExistingMapping" class="btn btn-primary">Modify Existing Mapping</button>
+                </div>
+            </div>
+        </div>
+        <div id="step-3">
+            @{
+            await Html.RenderPartialAsync("_PartialStepThree");
+            }
+        </div>
+    </div>
+</div>
+
+@section Modal {
+<div id="modalUpsert" class="modal fade" tabindex="-1" role="dialog" aria-labelledby="modalUpsert" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="actionModalTitle"></h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div id="actionModalBody" class="modal-body">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" id="btnActionUpsert">Save changes</button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="modalConfirmDelete" class="modal fade" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Confirm delete lineItem mapping</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" id="btnActionDelete">Delete</button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="modalConfirmDeleteDataItem" class="modal fade" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Confirm delete temp data item</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" id="btnActionDeleteItem">Delete</button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+}
+
+@section Scripts {
+<script type="text/javascript" src="~/lib/smartwizard/dist/js/jquery.smartWizard.min.js"></script>
+<script type="text/javascript" src="~/js/dataTable.min.js"></script>
+<script type="text/javascript" src="~/js/dataTableBootstrap4.min.js"></script>
+<script>
+    $(document).ready(function () {
+        let lineItemId = 0;
+        let tempDataId = 0;
+        let tblErrorsDatatable;
+        let datatable;
+        let modify;
+        let lineNumber;
+
+        $("#tblErrors")
+            .parent()
+            .hide();
+
+        $('#smartwizard')
+            .smartWizard();
+
+        $(".sw-btn-next")
+            .hide();
+
+        $(".sw-btn-prev")
+            .hide();
+
+        $.get('/mapping/description/mapped')
+            .done(function (isDescriptionMapped) {
+                if (isDescriptionMapped) {
+                    modify = true;
+
+                    datatable = $('#tbLineItems').DataTable({
+                        "ajax": {
+                            "url": '/mapping',
+                            "type": "GET",
+                            "dataType": "json"
+                        },
+                        "columnDefs": [
+                            {
+                                "targets": [0, 1],
+                                "visible": false,
+                                "searchable": false
+                            }
+                        ],
+                        "columns": [
+                            { "data": "id", "name": "id", "autoWidth": true },
+                            { "data": "description", "name": "description", "autoWidth": true },
+                            { "data": "category", "name": "category", "width": "30%" },
+                            { "data": "name", "name": "name", "width": "55%" },
+                            {
+                                "width": "15%",
+                                "render": function (data, type, row) {
+                                    return `<input id="desc${row.id}" type="hidden" value="${row.description
+                                        }"/>
+                                                                                    <a id="btnAction${row.id
+                                        }" class="btn btn-primary action-upsert" href="#modalUpsert" data-toggle="modal">Edit</a>
+                                                                                    <a id="btnDelete${row.id
+                                        }" class="btn btn-danger action-delete" href="#modalConfirmDelete" data-toggle="modal">Delete</a>`;
+                                }
+                            }
+                        ],
+                        "initComplete": initializeDataTable
+                    });
+
+                    $('#btnExistingMapping').text('Add Missing Mapping');
+
+                    localStorage.setItem('ActionType', 'Edit');
+
+                    $("#filterRow")
+                        .hide();
+
+                    $(".sw-btn-next")
+                        .show();
+                } else {
+                    if (datatable) {
+                        datatable.destroy();
+                    }
+                    modify = false;
+
+                    datatable = $('#tbLineItems').DataTable({
+                        "ajax": {
+                            "url": '/tempData',
+                            "type": "GET",
+                            "dataType": "json"
+                        },
+                        "columnDefs":
+                            [
+                                {
+                                    "targets": [0, 1],
+                                    "visible": false,
+                                    "searchable": false
+                                }
+                            ],
+                        "columns": [
+                            { "data": "id", "name": "id", "autoWidth": true },
+                            { "data": "description", "name": "description", "autoWidth": true },
+                            { "data": "category", "name": "category", "width": "30%" },
+                            { "data": "name", "name": "name", "width": "55%" },
+                            {
+                                "width": "15%",
+                                "render": function (data, type, row) {
+
+                                    return `<input type="hidden" id="txtLineNumber${row.id}" value="${row.lineNumber}"/>
+                                                    <a id="btnAction${row.id}" class="btn btn-primary action-upsert" href="#modalUpsert" data-toggle="modal">Map</a>
+                                                    <a id="btnDeleteAction${row.id}" class="btn btn-danger action-delete-item" href="#modalConfirmDeleteDataItem" data-toggle="modal">Delete</a>`;
+                                }
+                            }
+                        ],
+                        "initComplete": initializeDataTable,
+                        "language": {
+                            "emptyTable": "All Line Items in File are mapped"
+                        }
+                    });
+                    localStorage.setItem('ActionType', 'Add');
+
+
+                }
+
+                $('#btnExistingMapping')
+                    .click(function () {
+                        if (datatable) {
+                            datatable.clear();
+                            datatable.destroy();
+                        }
+
+                        localStorage.setItem('ActionType', 'Add');
+
+                        if (modify) {
+                            modify = false;
+                            datatable = $('#tbLineItems').DataTable({
+                                "ajax": {
+                                    "url": '/tempData',
+                                    "type": "GET",
+                                    "dataType": "json"
+                                },
+                                "columnDefs":
+                                    [
+                                        {
+                                            "targets": [0, 1],
+                                            "visible": false,
+                                            "searchable": false
+                                        }
+                                    ],
+                                "columns": [
+                                    { "data": "id", "name": "id", "autoWidth": true },
+                                    { "data": "description", "name": "description", "autoWidth": true },
+                                    { "data": "category", "name": "category", "width": "30%" },
+                                    { "data": "name", "name": "name", "width": "55%" },
+                                    {
+                                        "width": "15%",
+                                        "render": function (data, type, row) {
+                                            return `<input type="hidden" id="txtLineNumber${row.id}" value="${row
+                                                .lineNumber}"/>
+                                                    <a id="btnAction${row.id}" class="btn btn-primary action-upsert" href="#modalUpsert" data-toggle="modal">Map</a>
+                                                <a id="btnDeleteAction${row.id}" class="btn btn-danger action-delete-item" href="#modalConfirmDeleteDataItem" data-toggle="modal">Delete</a>`;
+                                        }
+                                    }
+                                ],
+                                "initComplete": initializeDataTable,
+                                "language": {
+                                    "emptyTable": "All Line Items in File are mapped"
+                                }
+                            });
+                            $('#btnExistingMapping').text('Modify Existing Mapping');
+                            localStorage.setItem('ActionType', 'Add');
+                        } else {
+                            modify = true;
+                            datatable = $('#tbLineItems').DataTable({
+                                "ajax": {
+                                    "url": '/mapping',
+                                    "type": "GET",
+                                    "dataType": "json"
+                                },
+                                "columnDefs": [
+                                    {
+                                        "targets": [0, 1],
+                                        "visible": false,
+                                        "searchable": false
+                                    }
+                                ],
+                                "columns": [
+                                    { "data": "id", "name": "id", "autoWidth": true },
+                                    { "data": "description", "name": "description", "autoWidth": true },
+                                    { "data": "category", "name": "category", "width": "30%" },
+                                    { "data": "name", "name": "name", "width": "55%" },
+                                    {
+                                        "width": "15%",
+                                        "render": function (data, type, row) {
+                                            return `<input id="desc${row.id}" type="hidden" value="${row.description
+                                                }"/>
+                                                                                    <a id="btnAction${row.id
+                                                }" class="btn btn-primary action-upsert" href="#modalUpsert" data-toggle="modal">Edit</a>
+                                                                                    <a id="btnDelete${row.id
+                                                }" class="btn btn-danger action-delete" href="#modalConfirmDelete" data-toggle="modal">Delete</a>`;
+                                        }
+                                    }
+                                ],
+                                "initComplete": initializeDataTable
+                            });
+
+                            $("#filterRow")
+                                .show();
+
+                            $('#btnExistingMapping').text('Add Missing Mapping');
+                            localStorage.setItem('ActionType', 'Edit');
+                        }
+                    });
+            });
+
+        $('#btnUpload')
+            .on('click',
+                function () {
+                    const fd = new FormData();
+                    const image = document.getElementById('csvFileInput');
+                    fd.append('File', image.files[0]);
+
+                    $.ajax({
+                        type: "POST",
+                        url: "/datafield/upload",
+                        data: fd,
+                        contentType: false,
+                        processData: false,
+                        cache: false,
+                        beforeSend: function (xhr) {
+                            xhr.setRequestHeader("X-XSRF-TOKEN",
+                                document.getElementById('RequestVerificationToken').value);
+                        }
+                    })
+                        .done(function (data) {
+                            if (typeof (data) !== "boolean") {
+                                $("#tblErrors")
+                                    .parent()
+                                    .show();
+                                if (!$.fn.DataTable.isDataTable('#tblErrors')) {
+
+                                    tblErrorsDatatable = $('#tblErrors').DataTable({
+                                        "ajax": {
+                                            "url": "/errorList",
+                                            "type": "GET",
+                                            "dataType": "json"
+                                        },
+                                        "columns": [
+                                            { "data": "message", "name": "message", "autoWidth": true },
+                                            { "data": "property", "name": "property", "autoWidth": true },
+                                            { "data": "lineNumber", "name": "lineNumber", "autoWidth": true }
+                                        ]
+                                    });
+                                } else {
+                                    tblErrorsDatatable.ajax.reload();
+                                }
+                            } else {
+                                if (tblErrorsDatatable)
+                                    tblErrorsDatatable.destroy();
+
+                                datatable.ajax.reload(initializeDataTable);
+
+                                $.get('/category/all')
+                                    .done(function (categories) {
+                                        const ddlCategory = document.getElementById('ddlAllCategory');
+                                        createOptionsBySelectList(ddlCategory, categories, 'Category');
+                                    })
+                                    .fail(function () {
+                                        console.error("Error in category options api");
+                                    });
+
+                                $(".sw-btn-next").click();
+                            }
+                        })
+                        .fail(function () {
+                            console.error("Error in file upload");
+                        });
+                });
+
+        function initializeDataTable() {
+            $("#tbLineItems")
+                .off();
+
+            $("#tbLineItems")
+                .on("click",
+                    ".action-delete",
+                    function (event) {
+                        const id = event.target.id;
+                        lineItemId = id.substring(9);
+                    });
+
+            $("#tbLineItems")
+                .on("click",
+                    ".action-delete-item",
+                    function (event) {
+                        const id = event.target.id;
+                        tempDataId = id.substring(15);
+                    });
+
+            $("#btnActionDelete")
+                .off()
+                .on("click",
+                    function () {
+                        $.ajax({
+                            type: "DELETE",
+                            url: `/mapping?${$.param({
+                                id: lineItemId
+                            })}`,
+                            cache: false
+                        })
+                            .done(function () {
+                                $("#modalConfirmDelete").modal('hide');
+                            })
+                            .fail(function (ex) {
+                                $("#modalConfirmDelete").modal('hide');
+                                console.error(ex);
+                            });
+                    });
+
+            $("#btnActionDeleteItem")
+                .off()
+                .on("click",
+                    function () {
+                        $.ajax({
+                            type: "DELETE",
+                            url: "/tempData/id/" + tempDataId
+                        })
+                            .done(function () {
+                                datatable.ajax.reload(initializeDataTable);
+                            })
+                            .fail(function (ex) {
+                                console.error(ex);
+                            })
+                            .always(function () {
+                                $("#modalConfirmDeleteDataItem").modal('hide');
+                            })
+                    });
+
+            $("#tbLineItems")
+                .on("click",
+                    ".action-upsert",
+                    function (event) {
+                        const id = event.target.id;
+                        lineItemId = id.substring(9);
+                        var siblings = event.target.parentNode.parentNode.children;
+
+                        var actionType = localStorage.getItem('ActionType');
+
+                        const body = document.getElementById('actionModalBody');
+
+                        while (body.firstChild) {
+                            body.removeChild(body.firstChild);
+                        }
+
+                        const form = document.createElement('FORM');
+                        form.id = 'upsertForm';
+
+                        localStorage.setItem('category', siblings[0].innerText);
+                        localStorage.setItem('name', siblings[1].innerText);
+
+                        if (actionType === "Edit") {
+                            const fragment = document.createDocumentFragment();
+                            addNewMappingLayout({
+                                fragment: fragment,
+                                category: siblings[0].innerText,
+                                name: siblings[1].innerText,
+                                description: $(`#desc${lineItemId}`).val(),
+                                static: false
+                            });
+                            form.appendChild(fragment);
+                        } else {
+                            lineNumber = $(`#txtLineNumber${lineItemId}`).val();
+
+                            const rowFragment = document.createDocumentFragment();
+
+                            const row = document.createElement('DIV');
+                            row.className = 'row';
+
+                            const firstHalf = document.createElement('DIV');
+                            firstHalf.className = 'col-sm-6';
+
+                            const existingButton = document.createElement('BUTTTON');
+                            existingButton.id = 'existingButton';
+                            existingButton.innerText = 'Add Existing Mapping';
+                            existingButton.classList.add('btn', 'btn-primary');
+                            existingButton.addEventListener('click',
+                                function () {
+                                    const upsertForm = document.getElementById('upsertForm');
+
+                                    while (upsertForm.firstChild) {
+                                        upsertForm.removeChild(upsertForm.firstChild);
+                                    }
+
+                                    const upsertFragement = document.createDocumentFragment();
+
+                                    const formGroupOne = createFormGroup({
+                                        id: 'ddlCategory',
+                                        labelText: 'Category',
+                                        formControl: 'SELECT'
+                                    });
+                                    upsertFragement.appendChild(formGroupOne);
+
+                                    const formGroupTwo = createFormGroup({
+                                        id: 'ddlName',
+                                        labelText: 'Lineitem Name',
+                                        formControl: 'SELECT'
+                                    });
+                                    upsertFragement.appendChild(formGroupTwo);
+
+                                    const formGroupThree = createFormGroup({
+                                        id: 'txtAreaDescription',
+                                        labelText: 'Comments',
+                                        formControl: 'TEXTAREA',
+                                        rows: 3
+                                    });
+                                    upsertFragement.appendChild(formGroupThree);
+
+                                    upsertForm.appendChild(upsertFragement);
+
+                                    localStorage.setItem('newActionType', 'existing');
+
+                                    $.get('/category/all/mapped')
+                                        .done(function (data) {
+                                            const ddlCategory = document.getElementById('ddlCategory');
+                                            createOptionsBySelectList(ddlCategory, data, 'Category');
+                                        })
+                                        .fail(function () {
+                                            console.error("Error in category options api");
+                                        });
+
+                                    const ddlCategory = document.getElementById('ddlCategory');
+                                    ddlCategory.addEventListener('change',
+                                        function (event) {
+                                            const e = event.target;
+                                            const category = e.options[e.selectedIndex].value;
+                                            $.get(`/mapping/all/category/?${$.param({ category })}`)
+                                                .done(function (listOfName) {
+                                                    const ddlName = document.getElementById('ddlName');
+                                                    createOptionsBySelectList(ddlName,
+                                                        listOfName,
+                                                        'Line item name');
+                                                })
+                                                .fail(function () {
+
+                                                });
+                                        },
+                                        false);
+
+                                    const ddlName = document.getElementById('ddlName');
+                                    ddlName.addEventListener('change',
+                                        function (event) {
+                                            const e = document.getElementById('ddlCategory');
+                                            const category = e.options[e.selectedIndex].value;
+
+                                            const f = event.target;
+                                            const name = f.options[f.selectedIndex].value;
+
+                                            $.get(`/mapping/description/?${$.param({
+                                                category,
+                                                name
+                                            })}`)
+                                                .done(function (description) {
+                                                    $("#txtAreaDescription").val(description);
+                                                })
+                                                .fail(function () {
+
+                                                });
+                                        },
+                                        false);
+                                },
+                                false);
+
+                            firstHalf.appendChild(existingButton);
+
+                            rowFragment.appendChild(firstHalf);
+
+                            const secondHalf = document.createElement('DIV');
+                            secondHalf.className = 'col-sm-6';
+
+                            const newButton = document.createElement('BUTTTON');
+                            newButton.id = 'newButton';
+                            newButton.innerText = 'Add New Mapping';
+                            newButton.classList.add('btn', 'btn-primary');
+
+                            newButton.addEventListener('click',
+                                function () {
+                                    const upsertForm = document.getElementById('upsertForm');
+
+                                    while (upsertForm.firstChild) {
+                                        upsertForm.removeChild(upsertForm.firstChild);
+                                    }
+
+                                    const upsertFragement = document.createDocumentFragment();
+
+                                    localStorage.setItem('category', siblings[0].innerText);
+                                    localStorage.setItem('name', siblings[1].innerText);
+
+                                    addNewMappingLayout({
+                                        fragment: upsertFragement,
+                                        category: localStorage.getItem('category'),
+                                        name: localStorage.getItem('name'),
+                                        description: '',
+                                        static: true
+                                    });
+                                    upsertForm.appendChild(upsertFragement);
+                                    localStorage.setItem('newActionType', 'new');
+
+                                    $("#actionModalTitle").text(actionType + " Line item description");
+                                },
+                                false);
+
+                            secondHalf.appendChild(newButton);
+
+                            rowFragment.appendChild(secondHalf);
+                            row.appendChild(rowFragment);
+
+                            form.appendChild(row);
+                        }
+
+                        body.appendChild(form);
+
+                        $("#actionModalTitle").text(actionType + " Line item description");
+                    });
+        };
+
+        function updateDescription(description, callback, error) {
+            $.ajax("/mapping", {
+                data: JSON.stringify({
+                    id: lineItemId,
+                    description: description,
+                    category: $("#txtCategory").val(),
+                    lineItem: $("#txtName").val()
+                }),
+                contentType: 'application/json',
+                type: 'PUT'
+            })
+                .done(function () {
+                    callback();
+                })
+                .fail(function (err) {
+                    console.error(err);
+                    error();
+                });
+        };
+
+        $.get('/category/all')
+            .done(function (data) {
+                const ddlCategory = document.getElementById('ddlAllCategory');
+                createOptionsBySelectList(ddlCategory, data, 'Category');
+            })
+            .fail(function () {
+                console.error("Error in category options api");
+            });
+
+        $("#btnFilter")
+            .click(function () {
+                const selectedCategory = $("#ddlAllCategory").val();
+                if (selectedCategory) {
+                    const actionType = localStorage.getItem('ActionType');
+                    if (actionType === "Edit") {
+                        datatable.ajax.url(`/mapping/category?${$.param({ category: selectedCategory })}`).load();
+                    } else {
+                        datatable.ajax.url(`/tempData/category?${$.param({ category: selectedCategory })}`).load();
+                    }
+
+                }
+            });
+
+        $("#btnActionUpsert")
+            .off()
+            .on("click",
+                function () {
+                    if (localStorage.getItem('ActionType') === "Edit") {
+                        updateDescription($("#txtAreaDescription").val(),
+                            function () {
+                                $("#modalUpsert").modal('hide');
+                                lineItemId = 0;
+                                $("#actionModalTitle").val('');
+                                $("#txtCategory").val('');
+                                $("#txtName").val('');
+                                $("#txtAreaDescription").val('');
+                                $.get("/mapping/description/mapped",
+                                    function (isDescriptionMapped) {
+                                        if (isDescriptionMapped)
+                                            $(".sw-btn-next").click();
+                                        else
+                                            datatable.ajax.reload(initializeDataTable);
+                                    });
+                            },
+                            function () {
+                                console.error("Error in save changes modal");
+                            });
+                    } else {
+                        let category;
+                        let name;
+                        if (localStorage.getItem('newActionType') === "new") {
+                            category = $("#txtCategory").val();
+                            name = $("#txtName").val();
+                        } else {
+                            category = localStorage.getItem('category');
+                            name = localStorage.getItem('name');
+                        }
+                        const comments = $("#txtAreaDescription").val();
+
+                        $.ajax("/mapping", {
+                            data: JSON.stringify({
+                                category: category,
+                                name: name,
+                                comments: comments,
+                                lineNumber: lineNumber
+                            }),
+                            contentType: 'application/json',
+                            type: 'POST'
+                        })
+                            .done(function () {
+                                $("#modalUpsert").modal('hide');
+                                $.get("/mapping/description/mapped",
+                                    function (isDescriptionMapped) {
+                                        if (isDescriptionMapped)
+                                            $(".sw-btn-next").click();
+                                        else
+                                            datatable.ajax.reload(initializeDataTable);
+                                    })
+                            })
+                            .fail(function (err) {
+                                console.error(err);
+                            });
+                    }
+                });
+
+        function createFormGroup(arg) {
+            const fragment = document.createDocumentFragment();
+
+            const div = document.createElement('DIV');
+            div.className = 'form-group';
+
+            const label = document.createElement('LABEL');
+            label.for = arg.id;
+            label.innerText = arg.labelText;
+
+            fragment.appendChild(label);
+
+            switch (arg.formControl) {
+                case "INPUT":
+                    {
+                        const input = document.createElement(arg.formControl);
+                        if (arg.isFormControlStatic) {
+                            input.className = 'form-control-plaintext';
+                        } else {
+                            input.className = 'form-control';
+                        }
+                        input.id = arg.id;
+                        input.type = arg.formControlType;
+                        input.value = arg.values;
+
+                        fragment.appendChild(input);
+                    }
+                    break;
+                case 'SELECT':
+                    {
+                        const select = document.createElement(arg.formControl);
+                        select.className = 'form-control';
+                        select.id = arg.id;
+
+                        fragment.appendChild(select);
+                    }
+                    break;
+                case 'TEXTAREA':
+                    {
+                        const textArea = document.createElement(arg.formControl);
+                        textArea.className = 'form-control';
+                        textArea.id = arg.id;
+                        textArea.rows = arg.rows;
+                        textArea.value = arg.values;
+
+                        fragment.appendChild(textArea);
+                    }
+                    break;
+            }
+            div.appendChild(fragment);
+            return div;
+        }
+
+        function createOptionsBySelectList(sel, models, title) {
+            sel.options.length = 0;
+            const fragment = document.createDocumentFragment();
+
+            const defaultOption = document.createElement("option");
+            defaultOption.innerHTML = `--Select ${title}--`;
+            defaultOption.disabled = true;
+            defaultOption.value = '';
+            if (!models.find(function (e) {
+                return e.selected;
+            })) {
+                defaultOption.selected = true;
+            }
+            fragment.appendChild(defaultOption);
+
+            for (let index = 0; index < models.length; index++) {
+                const model = models[index];
+                if (model) {
+                    const opt = document.createElement("option");
+                    opt.innerHTML = model.text;
+                    opt.disabled = model.disabled;
+                    opt.value = model.text;
+                    opt.selected = model.selected;
+                    fragment.appendChild(opt);
+                }
+            }
+            sel.appendChild(fragment);
+        };
+
+        function addNewMappingLayout(arg) {
+            const formGroupOne = createFormGroup({
+                id: 'txtCategory',
+                labelText: 'Category',
+                formControl: 'INPUT',
+                formControlType: 'text',
+                isFormControlStatic: arg.static,
+                values: arg.category || ''
+            });
+            arg.fragment.appendChild(formGroupOne);
+
+            const formGroupTwo = createFormGroup({
+                id: 'txtName',
+                labelText: 'Lineitem Name',
+                formControl: 'INPUT',
+                formControlType: 'text',
+                isFormControlStatic: arg.static,
+                values: arg.name || ''
+            });
+            arg.fragment.appendChild(formGroupTwo);
+
+            const formGroupThree = createFormGroup({
+                id: 'txtAreaDescription',
+                labelText: 'Comments',
+                formControl: 'TEXTAREA',
+                rows: 3,
+                values: arg.description ? arg.description : ''
+            });
+            arg.fragment.appendChild(formGroupThree);
+        }
+    });
+</script>
+}

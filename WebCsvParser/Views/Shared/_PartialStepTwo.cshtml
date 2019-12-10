@@ -1,0 +1,20 @@
+﻿@model bool
+
+<div class="row">
+    <div class="col">
+        <button type="button" class="btn btn-primary next-step" id="btnUnknownMapping"><i class="fas @(Model ? "fa-check":"fa-times")"></i>  Unknown Mapping Exist</button>
+    </div>
+    <div class="col">
+        <button type="button" class="btn btn-primary next-step"><i class="fas @(!Model ? "fa-check":"fa-times")"></i> No unknown Mapping Exist</button>
+    </div>
+</div>
+
+<script>
+    $(".next-step")
+        .off()
+        .on("click",
+            function () {
+                $(".sw-btn-next").click();
+            });
+
+</script>
